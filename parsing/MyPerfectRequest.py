@@ -1,5 +1,4 @@
 from random import choice
-from time import sleep
 
 import requests
 from bs4 import BeautifulSoup
@@ -67,33 +66,24 @@ class Get:
         p = MyPerfectProxy.Get()
         req = ''
         while True:
-            print('Infinity request with proxy')
             proxy_db = Proxy_db.ProxyList.select()
             if not proxy_db:
-                print('Dont find proxies in DB')
                 p.new_list()
                 continue
-            print('I find proxies in DB. Lets check it')
             for i in proxy_db:
                 schema = i.schema
                 ip = i.proxy
                 proxy = {schema: ip}
-                print('Start check:', proxy)
                 req = self.proxy_check(proxy, url)
                 if req:
-                    print('Proxy is cool:', req)
                     break
                 else:
-                    print('Proxy not cool:', req, 'Delete them!')
                     Proxy_db.ProxyList.delete().where(Proxy_db.ProxyList.proxy == ip).execute()
                     continue
             if req:
-                print('We have the req, now we must the leave infinity cycle')
                 break
 
-            print('Proxy is ending, we need new list. Req is:', req)
 
-        print('Yes! We leave them with req!!!! Return the req:', req)
         return req
 
     def request(self, url):

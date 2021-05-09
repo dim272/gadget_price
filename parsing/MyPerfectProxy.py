@@ -45,19 +45,15 @@ class Get:
         valid_proxy_list = []
 
         for proxy in proxy_list:
-            print('check proxy:', proxy)
             try:
                 request = requests.get(url, proxies=proxy, timeout=5)
-                print('OK - ', request.status_code)
                 valid_proxy_list.append(proxy)
             except:
-                print('False')
                 continue
 
         return valid_proxy_list
 
     def checked_list(self, url):
-        print('Checked list')
         proxy_list = self.new_list()
         checked_list = self._check_proxy(proxy_list, url)
 

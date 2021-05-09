@@ -18,7 +18,7 @@ class Ekatalog():
             section = a.text
             href = a['href'].replace('/', '')
             link = url + href
-            print('Добавлям:', section, link)
+
             Ekatalog_db.HomePageLinks.create(section=section, link=link)
 
     @staticmethod
@@ -82,24 +82,25 @@ class Ekatalog():
                 double = db.select().where(db.model == model)
 
                 if not double:
-                    print('Adding model:', model, link)
                     db.create(model=model, link=link)
                 else:
-                    print('Model already exist:', model)
                     continue
 
             next_page = self.find_next_page_link(soup)
             if next_page:
-                print('Next page:', next_page)
                 url = next_page
             else:
-                print('Next false')
                 break
 
     @staticmethod
     def _brand_name_finder(soup):
-        script_list = soup.find('head').find_all('script')
         brand = ''
+
+        try:
+            script_list = soup.find('head').find_all('script')
+        except:
+            script_list = []
+
         for script in script_list:
             this_what_we_need = re.search(r'\bdataLayer\b', str(script))
             if this_what_we_need:
@@ -114,86 +115,136 @@ class Ekatalog():
 
     @staticmethod
     def _model_name_finder(soup, brand_name):
-        title = soup.find('div', id='top-page-title').get('data-title')
-
-        a = title.split('<span')
-        b = a[0].strip().split(' ')
-
         brand_part_list = brand_name.split(' ')
-        if len(brand_part_list) > 1:
-            for brand_part in brand_part_list:
-                b.remove(brand_part)
-        else:
-            b.remove(brand_name)
 
-        model_name = ' '.join(b)
+        try:
+            title = soup.find('div', id='top-page-title').get('data-title')
+        except:
+            title = ''
+
+        if title:
+            a = title.split('<span')
+            b = a[0].strip().split(' ')
+
+            if len(brand_part_list) > 1:
+                for brand_part in brand_part_list:
+                    b.remove(brand_part)
+            else:
+                b.remove(brand_name)
+
+            model_name = ' '.join(b)
+        else:
+            model_name = ''
+
         return model_name
 
     @staticmethod
     def _display_parsing(each_spec):
-        search_display = re.search(r'[:].{4}', each_spec.text).group()
-        display = re.sub("[^0-9.]", "", search_display)
+        try:
+            search_display = each_spec.get('title').split(',')
+            display = re.sub("[^0-9.,]", "", search_display[0])
+            display = display.replace(',', '.')
+        except:
+            display = ''
+
         return display
 
     @staticmethod
     def _storage_parsing(each_spec):
-        search_storage = re.search(r'[:].{5}', each_spec.text).group()
-        storage = re.sub("[^0-9.]", "", search_storage)
+        try:
+            search_storage = each_spec.get('title').split(',')
+            storage = re.sub("[^0-9]", "", search_storage[0])
+        except:
+            storage = ''
+
         return storage
 
     @staticmethod
     def _ram_parsing(each_spec):
-        search_ram = re.search(r'[У].{4}', each_spec.text).group()
-        ram = re.sub("[^0-9.]", "", search_ram)
+        try:
+            search_ram = each_spec.get('title').split(',')
+            ram = re.sub("[^0-9]", "", search_ram[1])
+        except:
+            ram = ''
+
         return ram
 
     @staticmethod
     def _num_cores_parsing(each_spec):
         try:
-            search_core = re.search(r'[:].{4}', each_spec.text).group()
-            num_cores = re.sub("[^0-9.]", "", search_core)
-        except AttributeError:
+            search_core = each_spec.get('title').split(',')
+            num_cores = re.sub("[^0-9.,]", "", search_core[0])
+            num_cores = num_cores.replace(',', '.')
+        except:
             num_cores = ''
+
         return num_cores
 
     @staticmethod
     def _core_speed_parsing(each_spec):
         try:
-            search_speed = re.search(r'[,].{4}', each_spec.text).group()
-            core_speed = re.sub("[^0-9.]", "", search_speed)
-        except AttributeError:
+            search_speed = each_spec.get('title').split(',')
+            core_speed = re.sub("[^0-9.,]", "", search_speed[1])
+            core_speed = core_speed.replace(',', '.')
+        except:
             core_speed = ''
+
         return core_speed
 
     @staticmethod
     def _battery_parsing(each_spec):
-        search_battery = re.search(r'[:].{7}', each_spec.text).group()
-        battery = re.sub("[^0-9.]", "", search_battery)
+        try:
+            search_battery = each_spec.get('title')
+            battery = re.sub("[^0-9.]", "", search_battery)
+        except:
+            battery = ''
+
         return battery
 
     @staticmethod
     def _weight_parsing(each_spec):
-        search_weight = re.search(r'[:].{5}', each_spec.text).group()
-        weight = re.sub("[^0-9.]", "", search_weight)
+        try:
+            search_weight = each_spec.get('title')
+            weight = re.sub("[^0-9.]", "", search_weight)
+        except:
+            weight = ''
+
         return weight
 
     @staticmethod
     def _release_parsing(soup):
-        release_block = soup.select('div > div.m-c-f1.no-mobile > a.ib.no-u')
         release = None
+        try:
+            release_block = soup.find('div', class_='m-c-f1')
+            release_part = release_block.find_all('span')
+        except:
+            release_part = ''
 
-        for each_release in release_block:
-            its_release = re.search(r'\bгод\b', each_release.text)
-            if its_release:
-                release = re.sub("[^0-9]", "", each_release.text)
-                break
+        if not release_part:
+            try:
+                release_block = soup.find('div', class_='m-c-f1')
+                release_part = release_block.find_all('a')
+            except:
+                release_part = ''
+
+        if release_part:
+            for i in release_part:
+                its_release = re.search(r'\bгод\b', i.text)
+                if its_release:
+                    release = re.sub("[^0-9]", "", i.text)
+                    break
 
         return release
 
     @staticmethod
     def _is_in_stock(soup):
         in_stock = True
-        top_block = soup.find('div', class_='desc-short-prices')
+        try:
+            top_block = soup.find('div', class_='desc-short-prices')
+        except:
+            top_block = ''
+            in_stock = False
+
         not_in_stock = top_block.select('.desc-not-avail')
         expected_on_sale = top_block.select('.or')
 
@@ -217,17 +268,47 @@ class Ekatalog():
         return new_url
 
     @staticmethod
-    def _price_parsing(soup):
-        where_buy = soup.find('div', class_='where-buy-table')
-        shops = where_buy[0].find_all("tr", {"class": True})
+    def _price_parsing_sorter(list_):
+        new_data = {}
+        for one_dict in list_:
+            for key in one_dict:
+                try:
+                    val = new_data[key]
+                    new_data[key] = val + [one_dict[key]]
+                except KeyError:
+                    new_data[key] = [one_dict[key]]
 
-        # Магазины которые нас интересуют
+        result = {}
+        for key in new_data:
+            max_price = max(new_data[key])
+            min_price = min(new_data[key])
+            max_key = 'max_' + key
+            min_key = 'min_' + key
+
+            result[max_key] = max_price
+            result[min_key] = min_price
+
+        return result
+
+    def _price_parsing(self, soup):
+        try:
+            where_buy = soup.find('table')
+            shops = where_buy.find_all("tr", {"class": True})
+        except:
+            shops = []
+
+        result = []
+
         favorite_shops = ['mts.ru', 'svyaznoy.ru', 'citilink.ru', 'м.видео', 'megafon.ru', 'eldorado.ru',
                           'ozon.ru', 'sbermegamarket.ru']
 
-        # Если магазин из списка, вынимаем название и стоимость
         for shop in shops:
-            shop_name = shop.find("a", {'class': 'it-shop'}).text
+            try:
+                shop_name = shop.find('h3').next_sibling.find('a').text
+            except:
+                shop_name = shop.find('h3').parent.next_sibling.find('a').text
+            else:
+                continue
 
             if shop_name.lower() not in favorite_shops:
                 continue
@@ -238,17 +319,27 @@ class Ekatalog():
             else:
                 dict_key = 'price_mvideo'
 
-            price_block = shop.select('.where-buy-price > a')
-            price = re.sub("[^0-9]", "", price_block[0].text)
+            blocks = shop.find_all('td')
+            price_block = blocks[3]
+            price = re.sub("[^0-9]", "", price_block.text)
+
+            result.append({dict_key: price})
+
+        if result:
+            sorted_results = self._price_parsing_sorter(result)
+        else:
+            sorted_results = {}
+
+        return sorted_results
 
     def smartphone_specification(self, url):
-        db = Smartphones_db.Smartphones
-
         r = MyPerfectRequest.Get(use_proxy=True, android_headers=True)
         soup = r.soup(url)
 
         brand = self._brand_name_finder(soup)
         model = self._model_name_finder(soup, brand)
+
+        spec_dict = {'brand': brand, 'model': model}
 
         specifications = soup.find('div', class_='m-c-f2').select('.m-s-f3')
 
@@ -257,48 +348,53 @@ class Ekatalog():
             its_display = re.search(r'\bЭкран\b', each_spec.text)
             if its_display:
                 display = self._display_parsing(each_spec)
+                spec_dict['display'] = str(display)
                 continue
 
             its_storage = re.search(r'\bПамять\b', each_spec.text)
             if its_storage:
                 storage = self._storage_parsing(each_spec)
                 ram = self._ram_parsing(each_spec)
+                spec_dict['storage'] = str(storage)
+                spec_dict['ram'] = str(ram)
                 continue
 
             its_cpu = re.search(r'\bПроцессор\b', each_spec.text)
             if its_cpu:
-                num_cores = self._num_cores_parsing(each_spec)
+                cpu_num = self._num_cores_parsing(each_spec)
                 core_speed = self._core_speed_parsing(each_spec)
+                spec_dict['cpu_num'] = str(cpu_num)
+                spec_dict['core_speed'] = str(core_speed)
                 continue
 
             its_battery = re.search(r'\bЕмкость батареи\b', each_spec.text)
             if its_battery:
                 battery = self._battery_parsing(each_spec)
+                spec_dict['battery'] = str(battery)
                 continue
 
             its_weight = re.search(r'\bВес\b', each_spec.text)
             if its_weight:
                 weight = self._weight_parsing(each_spec)
+                spec_dict['weight'] = str(weight)
                 continue
-
-        db.create(brand=brand, model=model, display=display, storage=storage, ram=ram, num_cores=num_cores,
-                  core_speed=core_speed, battery=battery, weight=weight)
 
         release = self._release_parsing(soup)
         if release:
-            db.update({db.release: release}).where(db.model == model, db.storage == storage, db.ram == ram).execute()
+            spec_dict['release'] = str(release)
 
         in_stock = self._is_in_stock(soup)
-        db.update({db.in_stock: in_stock}).where(db.model == model, db.storage == storage, db.ram == ram).execute()
+        spec_dict['in_stock'] = bool(in_stock)
+
+        price_dict = {}
 
         if in_stock:
             new_url = self._more_button_finder(soup)
             if new_url:
                 soup = r.soup(new_url)
-                self._price_parsing(soup)
-            else:
-                pass
-                # тут наверно нужна функция сбора цен, когда нет кнопки "ещё"
+                price_dict = self._price_parsing(soup)
 
-        # настроить парсинг и попробовать собрать результаты в дикт, вернуть его и вставить в базу разом
-        # поправить cpu_num и core_speed
+        final_dict = {**spec_dict, **price_dict}
+
+        Smartphones_db.Smartphones.insert_many(final_dict).execute()
+

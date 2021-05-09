@@ -11,10 +11,10 @@ p = parsing.MyPerfectProxy.Get()
 e = Main.Ekatalog()
 
 i = SmartphonesLinks.select()
+
 for each_i in i:
     link = each_i.link
+    print(each_i.id)
     e.smartphone_specification(link)
 
-#    HomePageLinks.update({HomePageLinks.link_all: all_link}).where(HomePageLinks.section == each_i.section).execute()
-
-
+# NFC 55 59
