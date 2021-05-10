@@ -10,11 +10,11 @@ with gadgets_db:
 p = parsing.MyPerfectProxy.Get()
 e = Main.Ekatalog()
 
-i = SmartphonesLinks.select()
-
-for each_i in i:
-    link = each_i.link
-    print(each_i.id)
-    e.smartphone_specification(link)
+# i = SmartphonesLinks.select()
+#
+# for each_i in i:
+#     link = each_i.link
+#     print(each_i.id)
+e.smartphone_specification('https://www.e-katalog.ru/XIAOMI-REDMI-9-NFC-64GB.htm')
 
 # NFC 55 59
