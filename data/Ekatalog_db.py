@@ -8,6 +8,7 @@ class HomePageLinks(Model):
     section = CharField(null=True)
     link = CharField(null=True)
     link_all = CharField(null=True)
+    updated = CharField(null=True)
 
     class Meta:
         database = ekatalog_db
@@ -17,6 +18,8 @@ class SmartphonesLinks(Model):
     id = PrimaryKeyField(unique=True)
     model = CharField(null=True)
     link = CharField(null=True)
+    img = CharField(null=True)
+    updated = CharField(null=True)
 
     class Meta:
         database = ekatalog_db
@@ -26,6 +29,7 @@ class BrandsLinks(Model):
     id = PrimaryKeyField(unique=True)
     brand = CharField(null=True)
     link = CharField(null=True)
+    updated = CharField(null=True)
 
     class Meta:
         database = ekatalog_db
