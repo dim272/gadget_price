@@ -3,7 +3,7 @@ from random import choice
 import requests
 from bs4 import BeautifulSoup
 
-from data import Proxy_db
+from data.Proxy_db import *
 
 class Get:
     def __init__(self):
@@ -17,12 +17,14 @@ class Get:
         return soup
 
     def new_list(self):
-        proxy_list = []
         try:
-            tr_list = self._soup.find('table', id='proxylisttable').find_all('tr')[1:21]
+            tr_list = self._soup.find('table', id='proxylisttable').find('tbody').find_all('tr')
         except:
             tr_list = []
-        db = Proxy_db.ProxyList()
+
+        with proxy_db:
+            proxy_db.create_tables([ProxyList])
+
         if tr_list:
             for tr in tr_list:
                 td = tr.find_all('td')
@@ -30,9 +32,7 @@ class Get:
                 port = td[1].text
                 schema = 'https' if 'yes' in td[6].text else 'http'
                 proxy = ip + ':' + port
-                db.create(schema=schema, proxy=proxy)
-
-        return proxy_list
+                ProxyList.create(schema=schema, proxy=proxy)
 
     def one_random(self):
         proxy_list = self.new_list()
@@ -53,8 +53,3 @@ class Get:
 
         return valid_proxy_list
 
-    def checked_list(self, url):
-        proxy_list = self.new_list()
-        checked_list = self._check_proxy(proxy_list, url)
-
-        return checked_list
