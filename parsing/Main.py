@@ -3,7 +3,7 @@ from statistics import mean
 from datetime import date, datetime
 
 from parsing import MyPerfectRequest
-from data import Ekatalog_db, Smartphones_db
+from data import Ekatalog_db, Smartphones_db, Pda_db
 
 
 class Ekatalog:
@@ -425,10 +425,11 @@ class Ekatalog:
         for shop in shops:
             try:
                 shop_name = shop.find('h3').next_sibling.find('a').text
-            except:
-                shop_name = shop.find('h3').parent.next_sibling.find('a').text
-            else:
-                continue
+            except AttributeError:
+                try:
+                    shop_name = shop.find('h3').parent.next_sibling.find('a').text
+                except AttributeError:
+                    continue
 
             if shop_name.lower() not in favorite_shops:
                 continue
@@ -584,6 +585,7 @@ class Avito:
     def _different_search_requests(self):
         brand = self.brand.lower()
         model = self.model.lower()
+        model2 = self.model.lower().replace(' ', '')
         storage = self.storage
         ram = self.ram
 
@@ -611,6 +613,30 @@ class Avito:
         search_requests.append(v)
 
         v = model + ' ' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + '/' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + ' ' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + 'gb' + '/' + storage + 'gb'
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + 'gb' + ' ' + storage + 'gb'
+        search_requests.append(v)
+
+        v = model2 + ' ' + ram + '/' + storage
+        search_requests.append(v)
+
+        v = model2 + ' ' + ram + ' ' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + storage
+        search_requests.append(v)
+
+        v = model2 + ' ' + storage
         search_requests.append(v)
 
         return search_requests
@@ -698,6 +724,9 @@ class Avito:
         for d in sorted_data:
             key = d
             val = sorted_data[key]
+
+            if not key or not val:
+                continue
             if val == max_value or val == (max_value - 1):
                 top_price_list.append(int(key))
                 price_list.append(int(key))
@@ -761,6 +790,8 @@ class Avito:
                 continue
 
         sorted_result = self._data_sorting(result)
+        if not sorted_result:
+            sorted_result = {'url_avito': self.link}
 
         return sorted_result
 
@@ -794,6 +825,7 @@ class Youla:
     def _different_search_requests(self):
         brand = self.brand.lower()
         model = self.model.lower()
+        model2 = self.model.lower().replace(' ', '')
         storage = self.storage
         ram = self.ram
 
@@ -821,6 +853,30 @@ class Youla:
         search_requests.append(v)
 
         v = model + ' ' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + '/' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + ' ' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + 'gb' + '/' + storage + 'gb'
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + ram + 'gb' + ' ' + storage + 'gb'
+        search_requests.append(v)
+
+        v = model2 + ' ' + ram + '/' + storage
+        search_requests.append(v)
+
+        v = model2 + ' ' + ram + ' ' + storage
+        search_requests.append(v)
+
+        v = brand + ' ' + model2 + ' ' + storage
+        search_requests.append(v)
+
+        v = model2 + ' ' + storage
         search_requests.append(v)
 
         return search_requests
@@ -905,6 +961,8 @@ class Youla:
         for d in sorted_data:
             key = d
             val = sorted_data[key]
+            if not key or not val:
+                continue
             if val == max_value or val == (max_value - 1):
                 top_price_list.append(int(key))
                 price_list.append(int(key))
@@ -948,5 +1006,384 @@ class Youla:
                 break
 
         sorted_result = self._data_sorting(titles_prices_list)
+        if not sorted_result:
+            sorted_result = {'url_youla': self.link}
 
         return sorted_result
+
+
+class Pda:
+
+    def __init__(self):
+        self._domain = 'https://4pda.ru/devdb/'
+        self.__db_init()
+
+    @staticmethod
+    def __db_init():
+        db = Pda_db.pda_db
+        with db:
+            db.create_tables([Pda_db.CategoriesLinksPda, Pda_db.BrandsLinksPda,
+                              Pda_db.SmartphonesLinksPda, Pda_db.SmartphoneSpecificationsPda])
+
+    @staticmethod
+    def _categories_link_parsing(soup):
+        # collect links of all categories on the main page
+        db = Pda_db.CategoriesLinksPda
+        today = date.today().strftime("%d.%m.%Y")
+
+        try:
+            category_block_list = soup.find('div', class_='types-list').find_all('div', class_='type-row')
+        except:
+            category_block_list = []
+
+        for category in category_block_list:
+            try:
+                title = category.find('div', class_='title-text').find('h2').text
+                href = category.find('div', class_='title-text').find('a').get('href')
+                link = 'https:' + href + '/all'
+            except:
+                continue
+
+            if title and link:
+                try:
+                    link_in_db = db.get(db.link == link)
+                except:
+                    link_in_db = ''
+
+                if link_in_db:
+                    continue
+                else:
+                    db.create(category=title, link=link, updated=today)
+
+    @staticmethod
+    def _get_brand_name_brands_links_parsing(title):
+        try:
+            title_split = title.split(' (')
+            brand_name = title_split[0]
+        except:
+            brand_name = ''
+
+        return brand_name
+
+    def _brands_links_parsing(self, soup, category_name):
+        # collect links of all brands in a given category
+        today = date.today().strftime("%d.%m.%Y")
+        db = Pda_db.BrandsLinksPda
+
+        try:
+            blocks_list = soup.find_all('ul', class_='word-list')
+        except:
+            blocks_list = []
+
+        for block in blocks_list:
+            try:
+                brands_list = block.find_all('li')
+            except:
+                brands_list = []
+
+            for brand in brands_list:
+                try:
+                    a = brand.find('a')
+                    title = a.text
+                    href = a.get('href')
+                except:
+                    continue
+
+                link = 'https:' + href.replace('/all', '') + '/all'
+
+                try:
+                    is_double = db.select().where(db.link == link)
+                except:
+                    is_double = ''
+
+                if is_double:
+                    continue
+
+                brand_name = self._get_brand_name_brands_links_parsing(title)
+
+                if link and brand_name:
+                    db.create(category=category_name, brand=brand_name, link=link, updated=today)
+                else:
+                    continue
+
+    @staticmethod
+    def _models_links_parsing(soup, brand_name):
+        # collect link and image for each model in a given brand
+        db = Pda_db.SmartphonesLinksPda
+
+        try:
+            models_list = soup.find_all('div', class_='box-holder')
+        except:
+            models_list = []
+
+        for model in models_list:
+            try:
+                img = model.find('img')
+                img_href = img.get('src')
+                name = model.find('div', class_='name').find('a')
+                model_name = name.text
+                model_href = name.get('href')
+            except:
+                continue
+
+            its_ipod = re.search(r'\bipod\b', model_name.lower())
+            if its_ipod:
+                continue
+
+            img_link = 'https:' + img_href
+            model_link = 'https:' + model_href
+
+            try:
+                is_double = db.select().where(db.link == model_link)
+            except:
+                is_double = ''
+
+            if is_double:
+                continue
+
+            db.create(brand=brand_name, model=model_name, link=model_link, img=img_link)
+
+    @staticmethod
+    def _specifications_parsing_main(specifications_list):
+        result = {}
+        for row in specifications_list:
+            try:
+                row_title = row.find('dt').text.lower()
+                row_value = row.find('dd').text
+            except:
+                continue
+
+            its_brand = re.search(r'\bпроизводитель\b', row_title)
+            if its_brand:
+                try:
+                    brand = row_value.lower()
+                except:
+                    continue
+                result['brand'] = brand
+                continue
+
+            its_model = re.search(r'\bмодель\b', row_title)
+            if its_model:
+                try:
+                    model = row_value.lower()
+                except:
+                    continue
+                result['model'] = model
+                continue
+
+            its_release = re.search(r'\bгод\b', row_title)
+            if its_release:
+                try:
+                    release = re.sub("[^0-9]", "", row_value)
+                except:
+                    continue
+                result['release'] = str(release)
+                continue
+
+            its_os = re.search(r'\bсистема\b', row_title)
+            if its_os:
+                result['os'] = row_value
+                continue
+
+            its_battery = re.search(r'\bаккум\b', row_title)
+            if its_battery:
+                try:
+                    battery = re.sub("[^0-9]", "", row_value)
+                except:
+                    continue
+                result['battery'] = str(battery)
+                continue
+        return result
+
+    @staticmethod
+    def _specifications_parsing_dimensions(specifications_list):
+        result = {}
+
+        for row in specifications_list:
+            try:
+                row_title = row.find('dt').text.lower()
+                row_value = row.find('dd').text
+            except:
+                continue
+
+            its_dimensions = re.search(r'\bгабариты\b', row_title)
+            if its_dimensions:
+                result['dimensions'] = row_value
+                continue
+
+            its_weight = re.search(r'\bвес\b', row_title)
+            if its_weight:
+                try:
+                    weight = re.sub("[^0-9]", "", row_value)
+                except:
+                    continue
+                result['weight'] = str(weight)
+                continue
+
+
+        return result
+
+    @staticmethod
+    def _specifications_parsing_cpu(specifications_list):
+        result = {}
+
+        for row in specifications_list:
+            try:
+                row_title = row.find('dt').text.lower()
+                row_value = row.find('dd').text
+            except:
+                continue
+
+            its_cpu = re.search(r'\bпроцессор\b', row_title)
+            if its_cpu:
+                result['cpu'] = row_value
+                continue
+
+            its_core_speed = re.search(r'\bвес\b', row_title)
+            if its_core_speed:
+                try:
+                    core_speed = re.sub("[^0-9]", "", row_value)
+                except:
+                    continue
+                result['core_speed'] = str(core_speed)
+                continue
+
+        return result
+
+    @staticmethod
+    def _specifications_parsing_storage(specifications_list):
+        pass
+
+    @staticmethod
+    def _specifications_parsing_display(specifications_list):
+        result = {}
+
+        for row in specifications_list:
+            try:
+                row_title = row.find('dt').text.lower()
+                row_value = row.find('dd').text
+            except:
+                continue
+
+            its_display = re.search(r'\bэкран\b', row_title)
+            if its_display:
+                try:
+                    display = re.sub("[^0-9,.]", "", row_value)
+                except:
+                    continue
+                result['display'] = str(display)
+                continue
+
+        return result
+
+    def _models_specifications_parsing(self, soup, model_img):
+        # collect data specification smartphone
+        ekatalog_db = Smartphones_db.Smartphones
+        db = Pda_db.SmartphoneSpecificationsPda
+        result = {'img': model_img}
+
+        try:
+            specifications_blocks = soup.find_all('div', class_='specifications-list')
+        except:
+            specifications_blocks = []
+
+        for block in specifications_blocks:
+            try:
+                title = block.find('h3', class_='specifications-title').text.lower()
+            except:
+                continue
+
+            try:
+                specifications_list = block.find_all('dl', class_='specifications-row')
+            except:
+                continue
+
+            its_main = re.search(r'\bобщее\b', title)
+            if its_main:
+                main_block = self._specifications_parsing_main(specifications_list)
+                result = {**result, **main_block}
+                continue
+
+            its_dimensions = re.search(r'\bразмеры\b', title)
+            if its_dimensions:
+                dimensions_block = self._specifications_parsing_dimensions(specifications_list)
+                result = {**result, **dimensions_block}
+                continue
+
+            its_cpu = re.search(r'\bпроцессор\b', title)
+            if its_cpu:
+                cpu_block = self._specifications_parsing_cpu(specifications_list)
+                result = {**result, **cpu_block}
+                continue
+
+            its_storage = re.search(r'\bпамять\b', title)
+            if its_storage:
+                storage_block = self._specifications_parsing_storage(specifications_list)
+                continue
+
+            its_display = re.search(r'\bмультимедиа\b', title)
+            if its_display:
+                display = self._specifications_parsing_display(specifications_list)
+                result = {**result, **display}
+                continue
+
+
+
+        try:
+            double = db.select().where() # TODO
+        except:
+            double = ''
+
+        if not double:
+            db.insert_many(result).execute()
+
+    def total_parsing(self):
+        # start a general collection or update of all data from the 4pda.ru/devdb/
+        url = self._domain
+        r = MyPerfectRequest.Get()
+        soup = r.soup(url)
+
+        self._categories_link_parsing(soup)
+
+        try:
+            categories = Pda_db.CategoriesLinksPda.select()
+        except:
+            categories = []
+
+        for category in categories:
+            try:
+                title = category.category
+                link = category.link
+            except:
+                continue
+            soup = r.soup(link)
+            self._brands_links_parsing(soup, title)
+
+        try:
+            smartphones_brands = Pda_db.BrandsLinksPda.select().where(Pda_db.BrandsLinksPda.category == 'Телефоны')
+        except:
+            smartphones_brands = []
+
+        for brand in smartphones_brands:
+            try:
+                brand_name = brand.brand
+                link = brand.link
+            except:
+                continue
+
+            if not brand_name or not link:
+                continue
+
+            soup = r.soup(link)
+            self._models_links_parsing(soup, brand_name)
+
+
+'''
+Если озу/память несколько, то передавать лист диктов
+после передачи для каждого дикта создать свою модель, добавив остальные характеристики
+
+NFC брать из бд екаталога, если нет, тогда False
+В самую последнюю очередь и для кадой модели, если их несколько
+
+в самом конце добавить в словарь через перебор листа диктов, даже если он будет один
+'''

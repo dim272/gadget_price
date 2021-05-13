@@ -23,8 +23,23 @@ e = Main.Ekatalog()
 # e.smartphones_links(mobiles.link_all)
 
 db = SmartphonesLinks.select()
+db2 = Smartphones
 
 for x in db:
     link = x.link
-    print(x.model, link)
-    e.smartphone_specification(link)
+
+    try:
+        double = db2.get(db2.url_ekatalog == link)
+    except:
+        double = ''
+
+    if not double:
+        print('\n', x.model, link)
+        e.smartphone_specification(link)
+    else:
+        continue
+
+# a = Main.Avito('Xiaomi', 'Mi 10T', '128', '8', 1)
+# y = Main.Youla('Xiaomi', 'Mi 10T', '128', '8', 1)
+# a.data_mining()
+# y.data_mining()
