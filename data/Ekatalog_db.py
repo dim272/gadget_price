@@ -1,4 +1,5 @@
 from peewee import *
+from peewee import CharField
 
 ekatalog_db = SqliteDatabase('data/ekatalog.db')
 
@@ -8,7 +9,7 @@ class HomePageLinks(Model):
     section = CharField(null=True)
     link = CharField(null=True)
     link_all = CharField(null=True)
-    updated = CharField(null=True)
+    updated: CharField = CharField(null=True)
 
     class Meta:
         database = ekatalog_db

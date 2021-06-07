@@ -68,6 +68,7 @@ class Get:
         while True:
             proxy_db = Proxy_db.ProxyList.select()
             if not proxy_db:
+                print('Get new proxies list')
                 p.new_list()
                 continue
             for i in proxy_db:
@@ -75,6 +76,7 @@ class Get:
                 ip = i.proxy
                 proxy = {schema: ip}
                 req = self.proxy_check(proxy, url)
+                print('Request is:', bool(req))
                 if req:
                     break
                 else:

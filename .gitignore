@@ -132,3 +132,5 @@ dmypy.json
 
 **/*.db-journal
 **/*.db
+
+main2.py

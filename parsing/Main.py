@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from parsing import MyPerfectRequest
 from data import Ekatalog_db, Smartphones_db, Pda_db
+import keyboards.main
 
 
 class Ekatalog:
@@ -26,11 +27,13 @@ class Ekatalog:
                 section = a.text
                 href = a['href'].replace('/', '')
                 link = url + href
-
+                print(section, link)
                 double = db.select().where(db.link == link)
                 if not double:
                     l_all = self.all_link_of_section(link)
                     db.create(section=section, link=link, link_all=l_all, updated=today)
+                else:
+                    db.update(updated=today).where(db.link == link).execute()
 
     @staticmethod
     def all_link_of_section(url):
@@ -86,6 +89,8 @@ class Ekatalog:
                     double = db.select().where(db.link == link)
                     if not double:
                         db.create(brand=brand, link=link, updated=today)
+                    else:
+                        db.update(updated=today).where(db.brand == brand, db.link == link)
                 else:
                     continue
 
@@ -127,9 +132,12 @@ class Ekatalog:
                 double = db.select().where(db.link == link)
 
                 if not double:
+                    print('найден новый смартфон:', model, link)
                     db.create(model=model, link=link, img=img, updated=today)
+                    self.smartphone_specification(link)
                 else:
-                    continue
+                    print('дата обновления обновлена')
+                    db.update(updated=today).where(db.link == link)
 
             next_page = self.find_next_page_link(soup)
 
@@ -454,6 +462,7 @@ class Ekatalog:
         return sorted_results
 
     def smartphone_specification(self, url):
+        print('Начинаем сбор данных смартфона по ссылке:', url)
         r = MyPerfectRequest.Get(use_proxy=True, android_headers=True)
         soup = r.soup(url)
 
@@ -474,6 +483,9 @@ class Ekatalog:
             specifications = soup.find('div', class_='m-c-f2').select('.m-s-f3')
         except:
             specifications = []
+
+        storage = None
+        ram = None
 
         if specifications:
             for each_spec in specifications:
@@ -534,14 +546,13 @@ class Ekatalog:
             in_stock = False
         spec_dict['in_stock'] = bool(in_stock)
 
-        if storage and ram:
-            a = Avito(brand, model, storage, ram, nfc)
-            avito_price_dict = a.data_mining()
-            y = Youla(brand, model, storage, ram, nfc)
-            youla_price_dict = y.data_mining()
-            youla_avito_price = {**avito_price_dict, **youla_price_dict}
-        else:
-            youla_avito_price = {}
+        a = Avito(brand, model, storage, ram, nfc)
+        avito_price_dict = a.data_mining()
+
+        y = Youla(brand, model, storage, ram, nfc)
+        youla_price_dict = y.data_mining()
+
+        youla_avito_price = {**avito_price_dict, **youla_price_dict}
 
         price_dict = {**ekatalog_price_dict, **youla_avito_price}
 
@@ -550,37 +561,53 @@ class Ekatalog:
         print(final_dict)
         Smartphones_db.Smartphones.insert_many(final_dict).execute()
 
-    def search(self, brand, model, storage, ram, nfc):
-        # 'Xiaomi', 'Redmi Note 9', '64', '3', 0
-        db = Smartphones_db.Smartphones
-        search = db.get(db.brand == brand, db.model == model, db.storage == storage, db.ram == ram, db.nfc == nfc)
+    def update(self):
+        print("запустили update")
+        self.main_page()
+        home_page_links = Ekatalog_db.HomePageLinks
+        mobiles_section = home_page_links.get(home_page_links.section == 'Мобильные')
+        mobiles_section_url = mobiles_section.link
+        print('взяли ссылку на мобильные:', mobiles_section_url)
+        print('запускаем скан топ брендов')
+        self.brands_links(mobiles_section_url)
+        brands_links = Ekatalog_db.BrandsLinks
+        brands_list = brands_links.select()
+        print('взяли список топ брендов:', brands_list)
+        print('увеличиваем значение')
+        for row in brands_list:
+            brand = row.brand
+            print(brand.strip())
+            keyboards.main.Brand.increase_top_value(brand)
+        all_mobiles_select = home_page_links.get(home_page_links.section == 'Мобильные')
+        all_mobiles_urls = all_mobiles_select.link_all
+        print('взяли ссылку на все мобилки:', all_mobiles_urls)
+        self.smartphones_links(all_mobiles_urls)
+        print('update екаталога закончен')
 
-        try:
-            updated = search.updated
-        except:
-            updated = ''
+    def check_for_update(self, brand, model, ram, storage):
+        print("запустили check_for_update", brand, model, ram, storage)
+        db = Smartphones_db.Smartphones
+        search = db.select().where(db.brand == brand, db.model == model, db.ram == ram, db.storage == storage)
+        print(search)
+        updated = ''
+        for each in search:
+            print(each)
+            print(each.updated)
+            updated = each.updated
+        print('updated:', updated)
 
         if updated:
-            today = date.today().strftime("%d.%m.%Y")
-            s_updated = datetime.strptime(updated, "%d.%m.%Y")
-            s_today = datetime.strptime(today, "%d.%m.%Y")
-            days_gone = s_today - s_updated
+            updated = datetime.timestamp(datetime.strptime(updated, "%d.%m.%Y"))
+            today = datetime.timestamp(datetime.now())
+
+            days_gone = round((today - updated) / 86400)
             print('Days gone:', days_gone)
 
-            if days_gone > 2:
-                url = search.url
-                self.smartphone_specification()
+            if days_gone > 7:
+                self.update()
 
 
-class Avito:
-    def __init__(self, brand, model, storage, ram, nfc):
-        self.brand = brand
-        self.model = model
-        self.storage = storage
-        self.ram = ram
-        self.nfc = nfc
-        self.link = self._link_generator()
-        self.search_requests = self._different_search_requests()
+class SecondMarket:
 
     def _different_search_requests(self):
         brand = self.brand.lower()
@@ -588,79 +615,222 @@ class Avito:
         model2 = self.model.lower().replace(' ', '')
         storage = self.storage
         ram = self.ram
-
         search_requests = []
 
-        v = brand + ' ' + model + ' ' + ram + '/' + storage
-        search_requests.append(v)
+        if not storage and not ram:
+            search_requests.append(model)
 
-        v = brand + ' ' + model + ' ' + ram + ' ' + storage
-        search_requests.append(v)
+            search_requests.append(model2)
 
-        v = brand + ' ' + model + ' ' + ram + 'gb' + '/' + storage + 'gb'
-        search_requests.append(v)
+            v = brand + ' ' + model
+            search_requests.append(v)
 
-        v = brand + ' ' + model + ' ' + ram + 'gb' + ' ' + storage + 'gb'
-        search_requests.append(v)
+            v = brand + ' ' + model2
+            search_requests.append(v)
 
-        v = model + ' ' + ram + '/' + storage
-        search_requests.append(v)
+        elif not storage:
+            v = brand + ' ' + model + ' ' + ram + 'gb'
+            search_requests.append(v)
 
-        v = model + ' ' + ram + ' ' + storage
-        search_requests.append(v)
+            v = brand + ' ' + model2 + ' ' + ram + 'gb'
+            search_requests.append(v)
 
-        v = brand + ' ' + model + ' ' + storage
-        search_requests.append(v)
+            v = model + ' ' + ram + 'gb'
+            search_requests.append(v)
 
-        v = model + ' ' + storage
-        search_requests.append(v)
+            v = model2 + ' ' + ram + 'gb'
+            search_requests.append(v)
 
-        v = brand + ' ' + model2 + ' ' + ram + '/' + storage
-        search_requests.append(v)
+        elif not ram:
+            v = brand + ' ' + model + ' ' + storage + 'gb'
+            search_requests.append(v)
 
-        v = brand + ' ' + model2 + ' ' + ram + ' ' + storage
-        search_requests.append(v)
+            v = brand + ' ' + model2 + ' ' + storage + 'gb'
+            search_requests.append(v)
 
-        v = brand + ' ' + model2 + ' ' + ram + 'gb' + '/' + storage + 'gb'
-        search_requests.append(v)
+            v = model + ' ' + storage + 'gb'
+            search_requests.append(v)
 
-        v = brand + ' ' + model2 + ' ' + ram + 'gb' + ' ' + storage + 'gb'
-        search_requests.append(v)
+            v = model2 + ' ' + storage + 'gb'
+            search_requests.append(v)
 
-        v = model2 + ' ' + ram + '/' + storage
-        search_requests.append(v)
+        else:
+            v = brand + ' ' + model + ' ' + ram + '/' + storage
+            search_requests.append(v)
 
-        v = model2 + ' ' + ram + ' ' + storage
-        search_requests.append(v)
+            v = brand + ' ' + model + ' ' + ram + ' ' + storage
+            search_requests.append(v)
 
-        v = brand + ' ' + model2 + ' ' + storage
-        search_requests.append(v)
+            v = brand + ' ' + model + ' ' + ram + 'gb' + '/' + storage + 'gb'
+            search_requests.append(v)
 
-        v = model2 + ' ' + storage
-        search_requests.append(v)
+            v = brand + ' ' + model + ' ' + ram + 'gb' + ' ' + storage + 'gb'
+            search_requests.append(v)
+
+            v = model + ' ' + ram + '/' + storage
+            search_requests.append(v)
+
+            v = model + ' ' + ram + ' ' + storage
+            search_requests.append(v)
+
+            v = brand + ' ' + model + ' ' + storage
+            search_requests.append(v)
+
+            v = model + ' ' + storage
+            search_requests.append(v)
+
+            v = brand + ' ' + model2 + ' ' + ram + '/' + storage
+            search_requests.append(v)
+
+            v = brand + ' ' + model2 + ' ' + ram + ' ' + storage
+            search_requests.append(v)
+
+            v = brand + ' ' + model2 + ' ' + ram + 'gb' + '/' + storage + 'gb'
+            search_requests.append(v)
+
+            v = brand + ' ' + model2 + ' ' + ram + 'gb' + ' ' + storage + 'gb'
+            search_requests.append(v)
+
+            v = model2 + ' ' + ram + '/' + storage
+            search_requests.append(v)
+
+            v = model2 + ' ' + ram + ' ' + storage
+            search_requests.append(v)
+
+            v = brand + ' ' + model2 + ' ' + storage
+            search_requests.append(v)
+
+            v = model2 + ' ' + storage
+            search_requests.append(v)
 
         return search_requests
 
     def _link_generator(self):
-        # https://m.avito.ru/rossiya/telefony?q=xiaomi%2Bredmi%2Bnote%2B9%2B3gb%2B64gb
-        domain = 'https://m.avito.ru/rossiya/telefony?q='
-        brand = self.brand.lower()
+        domain = self.link_pattern
+        brand = self.brand.replace(' ', '+').lower()
         model = self.model.replace(' ', '+').lower()
-        storage = self.storage + 'gb'
-        ram = self.ram + 'gb'
+        storage = self.storage
+        ram = self.ram
 
         if brand == 'apple':
-            link = domain + brand + '+' + model + '+' + storage
+            if storage:
+                link = domain + brand + '+' + model + '+' + storage
+            else:
+                link = domain + brand + '+' + model
         else:
-            link = domain + brand + '+' + model + '+' + ram + '+' + storage
+            if storage and ram:
+                link = domain + brand + '+' + model + '+' + ram + 'gb' + '+' + storage + 'gb'
+            elif storage:
+                link = domain + brand + '+' + model + '+' + storage + 'gb'
+            elif ram:
+                link = domain + brand + '+' + model + '+' + ram + 'gb'
+            else:
+                link = domain + brand + '+' + model
+
             if self.nfc:
                 link = link + '+nfc'
 
         return link
 
+    def _title_sorting(self, data):
+        result = {}
+        search_requests = self.search_requests
+
+        for d in data:
+            title = list(d.keys())[0].lower()
+            price = list(d.values())[0]
+
+            for search_request in search_requests:
+                search = re.search(search_request, title)
+                if search:
+
+                    if not self.nfc:
+                        search_nfc = re.search('nfc', title)
+                        if not search_nfc:
+                            try:
+                                val = result[price]
+                            except:
+                                val = 0
+                            result[price] = val + 1
+
+                    else:
+                        try:
+                            val = result[price]
+                        except:
+                            val = 0
+                        result[price] = val + 1
+
+        sorted_result = {}
+
+        for w in sorted(result, key=result.get, reverse=True):
+            sorted_result[w] = result[w]
+
+        return sorted_result
+
+    def _price_sorting(self, sorted_data):
+
+        name = self.name
+        link = self.link
+
+        values_sorted_list = list(sorted_data.values())
+
+        if len(values_sorted_list) > 1:
+            top1_value = values_sorted_list[0]
+            top2_value = values_sorted_list[1]
+        else:
+            top1_value = top2_value = values_sorted_list[0]
+
+        price_list = []
+        top_price_list = []
+
+        for d in sorted_data:
+            key = d
+            val = sorted_data[key]
+
+            if not key or not val:
+                continue
+            if val == top1_value or val == top2_value:
+                top_price_list.append(int(key))
+                price_list.append(int(key))
+            else:
+                price_list.append(int(key))
+
+        max_price = max(price_list)
+        min_price = min(price_list)
+        middle_price = mean(top_price_list)
+        middle_price = round(middle_price / 500) * 500
+
+        result = {f'max_price_{name}': max_price, f'min_price_{name}': min_price,
+                  f'mid_price_{name}': middle_price, f'url_{name}': link}
+
+        return result
+
+    def _data_sorting(self, data):
+        # data = [{title: price}]
+        sorted_data = self._title_sorting(data)
+        if sorted_data:
+            sorted_result = self._price_sorting(sorted_data)
+        else:
+            sorted_result = {}
+
+        return sorted_result
+
+
+class Avito(SecondMarket):
+    def __init__(self, brand, model, storage=None, ram=None, nfc=False):
+        self.brand = brand
+        self.model = model
+        self.storage = storage
+        self.ram = ram
+        self.nfc = nfc
+        self.name = 'avito'
+        self.link_pattern = 'https://m.avito.ru/rossiya/telefony?q='
+        self.link = self._link_generator()
+        self.search_requests = self._different_search_requests()
+
     @staticmethod
     def _soup(url):
-        r = MyPerfectRequest.Get(use_proxy=True, desktop_headers=True)
+        r = MyPerfectRequest.Get(use_proxy=True, android_headers=True)
         soup = r.soup(url)
         return soup
 
@@ -682,104 +852,55 @@ class Avito:
 
         return link
 
-    def _title_sorting(self, data):
-        result = {}
-
-        for d in data:
-            title = list(d.keys())[0].lower()
-            price = list(d.values())[0]
-
-            for each in self.search_requests:
-
-                search = re.search(each, title)
-                if search:
-                    if not self.nfc:
-                        search_nfc = re.search('nfc', title)
-                        if not search_nfc:
-                            try:
-                                val = result[price]
-                            except:
-                                val = 0
-                            result[price] = val + 1
-                    else:
-                        try:
-                            val = result[price]
-                        except:
-                            val = 0
-                        result[price] = val + 1
-
-        sorted_result = {}
-
-        for w in sorted(result, key=result.get, reverse=True):
-            sorted_result[w] = result[w]
-
-        return sorted_result
-
-    def _price_sorting(self, sorted_data):
-        max_value = max(list(sorted_data.values()))
-
-        price_list = []
-        top_price_list = []
-
-        for d in sorted_data:
-            key = d
-            val = sorted_data[key]
-
-            if not key or not val:
-                continue
-            if val == max_value or val == (max_value - 1):
-                top_price_list.append(int(key))
-                price_list.append(int(key))
-            else:
-                price_list.append(int(key))
-
-        max_price = max(price_list)
-        min_price = min(price_list)
-        middle_price = mean(top_price_list)
-        middle_price = round(middle_price / 500) * 500
-
-        result = {'max_price_avito': max_price, 'min_price_avito': min_price,
-                  'mid_price_avito': middle_price, 'url_avito': self.link}
-
-        return result
-
-    def _data_sorting(self, data):
-        # data = [{title: price}]
-        sorted_data = self._title_sorting(data)
-        if sorted_data:
-            sorted_result = self._price_sorting(sorted_data)
-        else:
-            sorted_result = {}
-
-        return sorted_result
-
-    def data_mining(self):
+    @staticmethod
+    def _get_titles_and_prices(soup):
         result = []
-        url = self.link
-        while True:
-            soup = self._soup(url)
 
-            try:
-                items = soup.find_all('div', {'data-marker': 'item'})
-            except:
-                items = []
+        try:
+            items = soup.find_all('div', {'data-marker': 'item'})
+        except:
+            items = []
 
-            if not items:
-                break
-
+        if items:
             for item in items:
                 try:
                     title = item.find('a', {'data-marker': 'item-title'}).find('h3').text
-                except:
-                    title = ''
-
-                try:
                     price = item.find('span', {'data-marker': 'item-price'}).text
                     price = re.sub("[^0-9]", "", price)
                 except:
-                    price = ''
+                    continue
 
-                result.append({title: price})
+                if title and price:
+                    result.append({title: price})
+        else:
+            try:
+                items = soup.find_all('div', {'data-marker': 'item/title'})
+            except:
+                items = []
+
+            for item in items:
+                try:
+                    title = item.find('a').text
+                    price = item.next_sibling.find('div', {'data-marker': 'item/price'}).text
+                    price = re.sub("[^0-9]", "", price)
+                except:
+                    continue
+
+                if title and price:
+                    result.append({title: price})
+
+        return result
+
+    def data_mining(self):
+        result = []
+        sorted_result = {}
+        url = self.link
+
+        while True:
+            soup = self._soup(url)
+            items = self._get_titles_and_prices(soup)
+            if items:
+                result = result + items
 
             next_page = self._find_next_page(soup)
 
@@ -789,97 +910,26 @@ class Avito:
                 url = next_page
                 continue
 
-        sorted_result = self._data_sorting(result)
+        if result:
+            sorted_result = self._data_sorting(result)
+
         if not sorted_result:
             sorted_result = {'url_avito': self.link}
 
         return sorted_result
 
 
-class Youla:
-    def __init__(self, brand, model, storage, ram, nfc):
+class Youla(SecondMarket):
+    def __init__(self, brand, model, storage=None, ram=None, nfc=False):
         self.brand = brand
         self.model = model
         self.storage = storage
         self.ram = ram
         self.nfc = nfc
+        self.name = 'youla'
+        self.link_pattern = 'https://youla.ru/moskva?q='
         self.link = self._link_generator()
         self.search_requests = self._different_search_requests()
-
-    def _link_generator(self):
-        domain = 'https://youla.ru/moskva?q='
-        brand = self.brand.lower()
-        model = self.model.replace(' ', '+').lower()
-        storage = self.storage + 'gb'
-        ram = self.ram + 'gb'
-
-        if brand == 'apple':
-            link = domain + brand + '+' + model + '+' + storage
-        else:
-            link = domain + brand + '+' + model + '+' + ram + '+' + storage
-            if self.nfc:
-                link = link + '+nfc'
-
-        return link
-
-    def _different_search_requests(self):
-        brand = self.brand.lower()
-        model = self.model.lower()
-        model2 = self.model.lower().replace(' ', '')
-        storage = self.storage
-        ram = self.ram
-
-        search_requests = []
-
-        v = brand + ' ' + model + ' ' + ram + '/' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model + ' ' + ram + ' ' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model + ' ' + ram + 'gb' + '/' + storage + 'gb'
-        search_requests.append(v)
-
-        v = brand + ' ' + model + ' ' + ram + 'gb' + ' ' + storage + 'gb'
-        search_requests.append(v)
-
-        v = model + ' ' + ram + '/' + storage
-        search_requests.append(v)
-
-        v = model + ' ' + ram + ' ' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model + ' ' + storage
-        search_requests.append(v)
-
-        v = model + ' ' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model2 + ' ' + ram + '/' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model2 + ' ' + ram + ' ' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model2 + ' ' + ram + 'gb' + '/' + storage + 'gb'
-        search_requests.append(v)
-
-        v = brand + ' ' + model2 + ' ' + ram + 'gb' + ' ' + storage + 'gb'
-        search_requests.append(v)
-
-        v = model2 + ' ' + ram + '/' + storage
-        search_requests.append(v)
-
-        v = model2 + ' ' + ram + ' ' + storage
-        search_requests.append(v)
-
-        v = brand + ' ' + model2 + ' ' + storage
-        search_requests.append(v)
-
-        v = model2 + ' ' + storage
-        search_requests.append(v)
-
-        return search_requests
 
     @staticmethod
     def _soup(url):
@@ -897,7 +947,7 @@ class Youla:
         return next_page
 
     @staticmethod
-    def _get_title_and_price(soup):
+    def _get_titles_and_prices(soup):
         try:
             ads = soup.find_all('li', class_="product_item")
         except:
@@ -910,84 +960,13 @@ class Youla:
                 title = ad.find('div', class_="product_item__title").text
                 price = ad.find('div', class_="product_item__description").find('div').text
                 price = re.sub("[^0-9]", "", price)
-                result.append({title: price})
             except:
                 continue
 
-        return result
-
-    def _title_sorting(self, data):
-        result = {}
-
-        for d in data:
-            title = list(d.keys())[0].lower()
-            price = list(d.values())[0]
-
-            for each in self.search_requests:
-
-                search = re.search(each, title)
-                if search:
-                    if not self.nfc:
-                        search_nfc = re.search('nfc', title)
-                        if not search_nfc:
-                            try:
-                                val = result[price]
-                            except:
-                                val = 0
-                            result[price] = val + 1
-                    else:
-                        try:
-                            val = result[price]
-                        except:
-                            val = 0
-                        result[price] = val + 1
-
-        sorted_result = {}
-
-        for w in sorted(result, key=result.get, reverse=True):
-            sorted_result[w] = result[w]
-
-        return sorted_result
-
-    def _price_sorting(self, sorted_data):
-        try:
-            max_value = max(list(sorted_data.values()))
-        except:
-            return False
-
-        price_list = []
-        top_price_list = []
-
-        for d in sorted_data:
-            key = d
-            val = sorted_data[key]
-            if not key or not val:
-                continue
-            if val == max_value or val == (max_value - 1):
-                top_price_list.append(int(key))
-                price_list.append(int(key))
-            else:
-                price_list.append(int(key))
-
-        max_price = max(price_list)
-        min_price = min(price_list)
-        middle_price = mean(top_price_list)
-        middle_price = round(middle_price / 500) * 500
-
-        result = {'max_price_youla': max_price, 'min_price_youla': min_price,
-                  'mid_price_youla': middle_price, 'url_youla': self.link}
+            if title and price:
+                result.append({title: price})
 
         return result
-
-    def _data_sorting(self, data):
-        # data = [{title: price}]
-        sorted_data = self._title_sorting(data)
-        if sorted_data:
-            sorted_result = self._price_sorting(sorted_data)
-        else:
-            sorted_result = {}
-
-        return sorted_result
 
     def data_mining(self):
         url = self.link
@@ -996,7 +975,7 @@ class Youla:
 
         while True:
             soup = self._soup(url)
-            new_titles_prices_list = self._get_title_and_price(soup)
+            new_titles_prices_list = self._get_titles_and_prices(soup)
             titles_prices_list = titles_prices_list + new_titles_prices_list
             new_url = self._find_next_page(soup)
             if new_url:
@@ -1144,7 +1123,37 @@ class Pda:
             db.create(brand=brand_name, model=model_name, link=model_link, img=img_link)
 
     @staticmethod
-    def _specifications_parsing_main(specifications_list):
+    def _check_for_Redmi(given_dict):
+        # {'brand': 'Redmi', 'model': 'Note 9'} => {'brand': 'Xiaomi', 'model': 'Redmi Note 9'}
+        result = given_dict
+
+        try:
+            brand = result.get('brand')
+            model = result.get('model')
+        except:
+            brand = 'error'
+            model = 'error'
+
+        if brand.lower() == 'redmi':
+            new_brand = 'Xiaomi'
+            new_model = 'Redmi ' + model
+            result['brand'] = new_brand
+            result['model'] = new_model
+
+        return result
+
+    @staticmethod
+    def _check_val_for_split(row_value):
+        # 'N4s (N4s snapdragon варианты с этим значением:n4s snapdragon)' => 'N4s'
+        split = row_value.split(' (')
+        if len(split) > 1:
+            model_name = split[0]
+        else:
+            model_name = row_value
+
+        return model_name
+
+    def _specifications_parsing_main(self, specifications_list):
         result = {}
         for row in specifications_list:
             try:
@@ -1153,47 +1162,42 @@ class Pda:
             except:
                 continue
 
-            its_brand = re.search(r'\bпроизводитель\b', row_title)
+            its_brand = re.search(r'производитель', row_title)
             if its_brand:
-                try:
-                    brand = row_value.lower()
-                except:
-                    continue
-                result['brand'] = brand
+                brand = self._check_val_for_split(row_value)
+                result['brand'] = brand.strip()
                 continue
 
-            its_model = re.search(r'\bмодель\b', row_title)
+            its_model = re.search(r'модель', row_title)
             if its_model:
-                try:
-                    model = row_value.lower()
-                except:
-                    continue
-                result['model'] = model
+                model = self._check_val_for_split(row_value)
+                result['model'] = model.strip()
                 continue
 
-            its_release = re.search(r'\bгод\b', row_title)
+            its_release = re.search(r'год', row_title)
             if its_release:
-                try:
-                    release = re.sub("[^0-9]", "", row_value)
-                except:
-                    continue
+                release = self._check_val_for_split(row_value)
+                release = re.sub("[^0-9]", "", release)
                 result['release'] = str(release)
                 continue
 
-            its_os = re.search(r'\bсистема\b', row_title)
+            its_os = re.search(r'система', row_title)
             if its_os:
-                result['os'] = row_value
+                os = self._check_val_for_split(row_value)
+                result['os'] = os
                 continue
 
-            its_battery = re.search(r'\bаккум\b', row_title)
+            its_battery = re.search(r'аккум', row_title)
             if its_battery:
-                try:
-                    battery = re.sub("[^0-9]", "", row_value)
-                except:
-                    continue
+                battery = self._check_val_for_split(row_value)
+                battery = re.sub("[^0-9]", "", battery)
                 result['battery'] = str(battery)
                 continue
-        return result
+
+        result = self._check_for_Redmi(result)
+        # {'brand': 'Redmi', 'model': 'Note 9'} => {'brand': 'Xiaomi', 'model': 'Redmi Note 9'}
+
+        return result  # {'brand': val, 'model': val, 'release': val, 'os': val, 'battery': val}
 
     @staticmethod
     def _specifications_parsing_dimensions(specifications_list):
@@ -1206,12 +1210,12 @@ class Pda:
             except:
                 continue
 
-            its_dimensions = re.search(r'\bгабариты\b', row_title)
+            its_dimensions = re.search(r'габариты', row_title)
             if its_dimensions:
                 result['dimensions'] = row_value
                 continue
 
-            its_weight = re.search(r'\bвес\b', row_title)
+            its_weight = re.search(r'вес', row_title)
             if its_weight:
                 try:
                     weight = re.sub("[^0-9]", "", row_value)
@@ -1220,11 +1224,9 @@ class Pda:
                 result['weight'] = str(weight)
                 continue
 
+        return result  # {'dimensions': val, 'weight': val}
 
-        return result
-
-    @staticmethod
-    def _specifications_parsing_cpu(specifications_list):
+    def _specifications_parsing_cpu(self, specifications_list):
         result = {}
 
         for row in specifications_list:
@@ -1234,25 +1236,194 @@ class Pda:
             except:
                 continue
 
-            its_cpu = re.search(r'\bпроцессор\b', row_title)
+            its_cpu = re.search(r'процессор', row_title)
             if its_cpu:
-                result['cpu'] = row_value
+                cpu = self._check_val_for_split(row_value)
+                result['cpu'] = cpu
                 continue
 
-            its_core_speed = re.search(r'\bвес\b', row_title)
+            its_core_speed = re.search(r'частота', row_title)
             if its_core_speed:
-                try:
-                    core_speed = re.sub("[^0-9]", "", row_value)
-                except:
-                    continue
+                core_speed = self._check_val_for_split(row_value)
+                core_speed = re.sub("[^0-9]", "", core_speed)
                 result['core_speed'] = str(core_speed)
                 continue
 
-        return result
+        return result  # {'cpu': val, 'core_speed': val}
 
     @staticmethod
-    def _specifications_parsing_storage(specifications_list):
-        pass
+    def _mb_to_gb(memory_list):
+        # ['0,200', '1 mb', '20 mb', '1mb', '9', '90', '0.250']
+
+        result = [re.sub("[^0-9,.]", "", ram.replace(',', '.')) for ram in memory_list]
+        # ['0.200', '1', '20', '1', '9', '90', '0.250']
+
+        result = [float(ram) / 1000 if float(ram) >= 1 else float(ram) for ram in result]
+        # [0.2, 0.001, 0.02, 0.001, 0.009, 0.09, 0.25]
+
+        result = [str(ram) for ram in result]
+        # ['0.2', '0.001', '0.02', '0.001', '0.009', '0.09', '0.25']
+
+        return result
+
+    def _get_memory_size_list(self, row_title, row_value):
+        result_list = []
+
+        try:
+            memory_list = row_value.split(' (')
+            memory_list = memory_list[0]
+        except:
+            memory_list = row_value
+
+        try:
+            memory_list = memory_list.split('/')
+            if len(memory_list) > 1:
+                for memory in memory_list:
+                    result_list.append(memory)
+            else:
+                result_list = memory_list
+        except:
+            result_list.append(memory_list[0])
+
+        if re.search(r'мб', row_title):
+            result_list = self._mb_to_gb(result_list)
+        else:
+            result_list = [re.sub("[^0-9.]", "", val.replace(',', '.')) for val in result_list]
+
+        return result_list  # ['3', '4', '6']
+
+    @staticmethod
+    def _get_memory_split(all_row):
+        result = []
+
+        try:
+            dropdown_list = all_row.find('dd').find_all('div', class_='dropdown')
+        except:
+            dropdown_list = []
+
+        for dropdown in dropdown_list:
+            try:
+                li_list = dropdown.find('ul').find_all('li')
+            except:
+                li_list = []
+
+            for li in li_list:
+                try:
+                    a = li.find('a').text
+                except:
+                    continue
+
+                ram_and_storage = a.split('/')
+                print(ram_and_storage)
+                if len(ram_and_storage) > 1:
+                    ram = ram_and_storage[0]
+                    storage = ram_and_storage[1]
+                    if ram.isdigit() and storage.isdigit():
+                        result.append({ram: storage})
+
+        return result  # [{'4': '64'}, {'6': '128'}]
+
+    @staticmethod
+    def _memory_result_generator(ram_list, storage_list):
+        # ram_list = ['3', '4', '6']
+        # storage_list = ['32', '64']
+
+        result = []
+
+        if len(ram_list) == 1 and len(storage_list) > 1:
+            for key in ram_list:
+                for val in storage_list:
+                    result.append({key: val})
+
+        elif len(ram_list) == len(storage_list):
+            x = len(ram_list) - 1
+            while x >= 0:
+                result.append({ram_list[x]: storage_list[x]})
+                x -= 1
+
+        elif len(ram_list) > len(storage_list) == 1:
+            for val in storage_list:
+                for key in ram_list:
+                    result.append({key: val})
+
+        elif len(ram_list) > len(storage_list) > 1:
+            x = len(storage_list) - 1
+            while x >= 0:
+                result.append({ram_list[x]: storage_list[x]})
+                x -= 1
+            result.append({ram_list[-1]: storage_list[-1]})
+        else:
+            result.append({ram_list[0]: storage_list[0]})
+
+        return result  # [{'4': '64'}, {'3': '32'}, {'6': '64'}]
+
+    @staticmethod
+    def _delete_doubles_memory_result(result):
+        result_without_doubles = []
+
+        for x in result:
+            if x not in result_without_doubles:
+                result_without_doubles.append(x)
+
+        return result_without_doubles
+
+    def _specifications_parsing_storage(self, specifications_list):
+        result = []
+        split = []
+        ram_list = []
+        storage_list = []
+
+        for row in specifications_list:
+            its_split = False
+
+            try:
+                row_title = row.find('dt').text.lower()
+            except:
+                try:
+                    row_title = row.find('dt').find('span').text.lower()
+                    its_split = True
+                except:
+                    continue
+
+            try:
+                row_value = row.find('dd').text
+            except:
+                try:
+                    row_value = row.find('dd').find('span').text
+                    its_split = True
+                except:
+                    continue
+
+            try:
+                check_to_split = row_value.split('(')
+                if len(check_to_split) > 1:
+                    its_split = True
+            except:
+                pass
+
+            if its_split:
+                split_data = self._get_memory_split(row)  # [{'4': '64'}, {'6': '128'}]
+                split = split + split_data
+
+            its_rom = re.search(r'rom', row_title)
+            its_ram = re.search(r'оперативная', row_title)
+            if its_rom or its_ram:
+                ram_list = self._get_memory_size_list(row_title, row_value)  # ['3', '4', '6']
+                continue
+
+            its_storage = re.search(r'встроенная', row_title)
+            if its_storage:
+                storage_list = self._get_memory_size_list(row_title, row_value)  # ['32', '64', '128']
+
+        if ram_list and storage_list:
+            result = self._memory_result_generator(ram_list, storage_list)  # [{'3': '32'}, {'4': '64'}, {'6': '128'}]
+
+        if split:
+            result = result + split  # [{'3': '32'}, {'4': '64'}, {'4': '64'}, {'6': '128'}]
+
+        result = self._delete_doubles_memory_result(result)  # [{'3': '32'}, {'4': '64'}, {'6': '128'}]
+
+        return result
 
     @staticmethod
     def _specifications_parsing_display(specifications_list):
@@ -1265,7 +1436,7 @@ class Pda:
             except:
                 continue
 
-            its_display = re.search(r'\bэкран\b', row_title)
+            its_display = re.search(r'размер экрана', row_title)
             if its_display:
                 try:
                     display = re.sub("[^0-9,.]", "", row_value)
@@ -1274,13 +1445,75 @@ class Pda:
                 result['display'] = str(display)
                 continue
 
+        return result  # {'display': val}
+
+    @staticmethod
+    def _create_dicts_of_results(result_dict, storage_block):
+        list_of_results = []
+
+        for memory_values in storage_block:
+            try:
+                ram = list(memory_values.keys())[0]
+                storage = list(memory_values.values())[0]
+            except:
+                continue
+            new_dict = {**result_dict, **{'ram': ram, 'storage': storage}}
+            list_of_results.append(new_dict)
+
+        return list_of_results
+        # [
+        # {'brand': 'val', 'model': 'val', 'release': 'val', 'os': 'val', 'battery': 'val', 'ram': '6', 'storage': '64'},
+        # {'brand': 'val', 'model': 'val', 'release': 'val', 'os': 'val', 'battery': 'val', 'ram': '3', 'storage': '32'}
+        # ]
+
+    @staticmethod
+    def _check_db_for_duplicates(result_dict):
+        duplicate = True
+        double = True
+        db = Pda_db.SmartphoneSpecificationsPda
+
+        try:
+            brand = result_dict.get('brand')
+            model = result_dict.get('model')
+            ram = result_dict.get('ram')
+            storage = result_dict.get('storage')
+            nfc = result_dict.get('nfc')
+            double = db.select().where(db.brand == brand, db.model == model,
+                                       db.ram == ram, db.storage == storage, db.nfc == nfc)
+        except:
+            pass
+
+        if not double:
+            duplicate = False
+
+        return duplicate
+
+    @staticmethod
+    def _get_nfc_from_ekatalog_db(result_dict):
+        db = Smartphones_db.Smartphones  # Ekatalog database
+        nfc = False
+        try:
+            brand = result_dict.get('brand')
+            model = result_dict.get('model')
+            ram = result_dict.get('ram')
+            storage = result_dict.get('storage')
+            model_in_ekatalog = db.get(db.brand == brand, db.model == model,
+                                       db.ram == ram, db.storage == storage)
+            nfc = model_in_ekatalog.nfc
+        except:
+            pass
+
+        result = {**result_dict, **{'nfc': bool(nfc)}}
+
         return result
 
     def _models_specifications_parsing(self, soup, model_img):
         # collect data specification smartphone
-        ekatalog_db = Smartphones_db.Smartphones
         db = Pda_db.SmartphoneSpecificationsPda
-        result = {'img': model_img}
+        today = date.today().strftime("%d.%m.%Y")
+        result = {'img': model_img, 'updated': today}
+        list_of_results = []
+        storage_block = None
 
         try:
             specifications_blocks = soup.find_all('div', class_='specifications-list')
@@ -1298,92 +1531,120 @@ class Pda:
             except:
                 continue
 
-            its_main = re.search(r'\bобщее\b', title)
+            its_main = re.search(r'общее', title)
             if its_main:
                 main_block = self._specifications_parsing_main(specifications_list)
+                # {'brand': val, 'model': val, 'release': val, 'os': val, 'battery': val}
                 result = {**result, **main_block}
                 continue
 
-            its_dimensions = re.search(r'\bразмеры\b', title)
+            its_dimensions = re.search(r'размеры', title)
             if its_dimensions:
                 dimensions_block = self._specifications_parsing_dimensions(specifications_list)
+                # {'dimensions': val, 'weight': val}
                 result = {**result, **dimensions_block}
                 continue
 
-            its_cpu = re.search(r'\bпроцессор\b', title)
+            its_cpu = re.search(r'процессор', title)
             if its_cpu:
                 cpu_block = self._specifications_parsing_cpu(specifications_list)
+                # {'cpu': val, 'core_speed': val}
                 result = {**result, **cpu_block}
                 continue
 
-            its_storage = re.search(r'\bпамять\b', title)
+            its_storage = re.search(r'память', title)
             if its_storage:
                 storage_block = self._specifications_parsing_storage(specifications_list)
+                # [{'3': '32'}, {'4': '64'}, {'6': '64'}]
                 continue
 
-            its_display = re.search(r'\bмультимедиа\b', title)
+            its_display = re.search(r'мультимедиа', title)
             if its_display:
                 display = self._specifications_parsing_display(specifications_list)
                 result = {**result, **display}
+                # {'display': val}
                 continue
 
+        if storage_block:
+            list_of_results = self._create_dicts_of_results(result, storage_block)
+        else:
+            list_of_results.append(result)
 
-
-        try:
-            double = db.select().where() # TODO
-        except:
-            double = ''
-
-        if not double:
-            db.insert_many(result).execute()
+        for result_dict in list_of_results:
+            result_dict_with_nfc = self._get_nfc_from_ekatalog_db(result_dict)
+            duplicate = self._check_db_for_duplicates(result_dict_with_nfc)
+            if not duplicate:
+                print('================> New row in base:\n', result_dict_with_nfc)
+                db.insert_many(result_dict_with_nfc).execute()
 
     def total_parsing(self):
         # start a general collection or update of all data from the 4pda.ru/devdb/
         url = self._domain
-        r = MyPerfectRequest.Get()
-        soup = r.soup(url)
+        r = MyPerfectRequest.Get(use_proxy=True, desktop_headers=True)
 
-        self._categories_link_parsing(soup)
+        # soup = r.soup(url)
+        # self._categories_link_parsing(soup)
+        #
+        # try:
+        #     categories = Pda_db.CategoriesLinksPda.select()
+        # except:
+        #     categories = []
+        #
+        # for category in categories:
+        #     try:
+        #         title = category.category
+        #         link = category.link
+        #     except:
+        #         continue
+        #     soup = r.soup(link)
+        #     self._brands_links_parsing(soup, title)
+        #
+        # try:
+        #     smartphones_brands = Pda_db.BrandsLinksPda.select().where(Pda_db.BrandsLinksPda.category == 'Телефоны')
+        # except:
+        #     smartphones_brands = []
+        #
+        # for brand in smartphones_brands:
+        #     try:
+        #         brand_name = brand.brand
+        #         link = brand.link
+        #     except:
+        #         continue
+        #
+        #     if not brand_name or not link:
+        #         continue
+        #
+        #     soup = r.soup(link)
+        #     self._models_links_parsing(soup, brand_name)
 
         try:
-            categories = Pda_db.CategoriesLinksPda.select()
+            smartphones_links = Pda_db.SmartphonesLinksPda.select()
         except:
-            categories = []
+            smartphones_links = []
 
-        for category in categories:
+        db_specifications = Pda_db.SmartphoneSpecificationsPda
+
+        for row in smartphones_links:
             try:
-                title = category.category
-                link = category.link
-            except:
-                continue
-            soup = r.soup(link)
-            self._brands_links_parsing(soup, title)
-
-        try:
-            smartphones_brands = Pda_db.BrandsLinksPda.select().where(Pda_db.BrandsLinksPda.category == 'Телефоны')
-        except:
-            smartphones_brands = []
-
-        for brand in smartphones_brands:
-            try:
-                brand_name = brand.brand
-                link = brand.link
+                id = row.id
+                brand = row.brand
+                model = row.model
+                img = row.img
+                link = row.link
+                print('\n', id, brand, model, link)
             except:
                 continue
 
-            if not brand_name or not link:
+            if not img or not link:
+                continue
+
+            try:
+                is_double = db_specifications.get(db_specifications.brand == brand, db_specifications.model == model)
+            except:
+                is_double = False
+
+            if is_double:
                 continue
 
             soup = r.soup(link)
-            self._models_links_parsing(soup, brand_name)
-
-
-'''
-Если озу/память несколько, то передавать лист диктов
-после передачи для каждого дикта создать свою модель, добавив остальные характеристики
-
-NFC брать из бд екаталога, если нет, тогда False
-В самую последнюю очередь и для кадой модели, если их несколько
-
-в самом конце добавить в словарь через перебор листа диктов, даже если он будет один
-'''
+            self._models_specifications_parsing(soup, img)

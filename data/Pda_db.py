@@ -46,6 +46,7 @@ class SmartphoneSpecificationsPda(Model):
     battery = CharField(null=True)
     dimensions = CharField(null=True)
     weight = CharField(null=True)
+    nfc = BooleanField(null=True)
     ram = CharField(null=True)
     storage = CharField(null=True)
     display = CharField(null=True)

@@ -1,6 +1,7 @@
 from peewee import *
 
 gadgets_db = SqliteDatabase('data/gadgets.db')
+smart_db = SqliteDatabase('data/smartphones.db')
 
 
 class Smartphones(Model):
@@ -50,3 +51,21 @@ class Smartphones(Model):
 
     class Meta:
         database = gadgets_db
+
+
+class TopBrands(Model):
+    id = PrimaryKeyField(unique=True)
+    brand = CharField()
+    top = IntegerField()
+
+    class Meta:
+        database = smart_db
+
+
+class ModelTable(Model):
+    id = PrimaryKeyField(unique=True)
+    model = CharField()
+    top = IntegerField()
+
+    class Meta:
+        database = smart_db

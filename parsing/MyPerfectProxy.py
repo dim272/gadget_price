@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from data.Proxy_db import *
 
+
 class Get:
     def __init__(self):
         self._soup = self._get_soup()
